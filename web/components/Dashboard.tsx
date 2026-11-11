@@ -1,8 +1,9 @@
 import type { FeedState, Snapshot, StockRow } from "@/lib/types";
-import type { AgentState } from "@/lib/agentState";
-import type { BoardStats } from "@/lib/board";
-import { AgentDesk } from "./AgentDesk";
-import { UsageStats } from "./UsageStats";
+import type { AgentReport } from "@/lib/agent";
+import type { NearBoard } from "@/lib/near";
+import { NearDesk } from "./NearDesk";
+import { Guardrails } from "./Guardrails";
+import { Leaderboard } from "./Leaderboard";
 import { formatAge, formatCompact, formatIsoWat, formatPct, formatUsd } from "@/lib/format";
 
 function premiumClass(value?: number): string {
@@ -114,7 +115,7 @@ function Row({ row }: { row: StockRow }) {
   );
 }
 
-export function Dashboard({ snapshot, agent, stats }: { snapshot: Snapshot; agent?: AgentState; stats: BoardStats }) {
+export function Dashboard({ snapshot, report, board }: { snapshot: Snapshot; report?: AgentReport; board: NearBoard }) {
   const { market, rows, otherMinted, warnings } = snapshot;
   const premiums = rows.map((r) => r.premiumPct).filter((v): v is number => v !== undefined);
   const widest = premiums.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
@@ -125,15 +126,16 @@ export function Dashboard({ snapshot, agent, stats }: { snapshot: Snapshot; agen
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-[var(--amber)]">
             <span className="h-1.5 w-1.5 rounded-full bg-[var(--amber)] shadow-[0_0_12px_var(--amber)]" />
-            <span className="text-xs font-medium uppercase tracking-[0.22em]">AfterHours</span>
+            <span className="text-xs font-medium uppercase tracking-[0.22em]">AfterHours on NEAR</span>
           </div>
           <h1 className="max-w-xl text-3xl font-semibold tracking-tight text-white md:text-4xl">
-            An AI agent watching the tape after the bell.
+            An AI trading-call agent that can&apos;t go rogue.
           </h1>
           <p className="max-w-2xl text-sm leading-6 text-[var(--muted)] md:text-[15px]">
-            Coinbase tokenized stocks keep trading on Base after Wall Street closes. The AfterHours Agent compares
-            official NAV with live Aerodrome pool prices, decides which gaps matter, and posts a reasoned call
-            onchain. Anyone can post a call against it. Informational only, no payouts, no trading.
+            Coinbase tokenized stocks keep trading on Base after Wall Street closes. The AfterHours Agent reads the gap
+            between official NAV and live pool prices and posts a reasoned call to a NEAR contract. A human sets its
+            limits onchain, its key can do one thing only, every blocked attempt is public, and a second agent grades
+            every call so the track record can&apos;t be faked. Informational only, no payouts, no trading.
           </p>
         </div>
         <div className="min-w-[260px] rounded-2xl border border-[var(--line-strong)] bg-[var(--bg-elev)] px-4 py-3">
@@ -141,7 +143,7 @@ export function Dashboard({ snapshot, agent, stats }: { snapshot: Snapshot; agen
             <Pill className={market.open ? "bg-[var(--up-dim)] text-[var(--up)]" : "bg-[var(--amber-dim)] text-[var(--amber)]"}>
               {market.label}
             </Pill>
-            <span className="text-[11px] text-[var(--muted)]">Base · 8453</span>
+            <span className="text-[11px] text-[var(--muted)]">Data: Base · Calls: NEAR</span>
           </div>
           <div className="mt-2 num text-xs text-[var(--text)]">{market.nowWat}</div>
           <div className="num text-xs text-[var(--muted)]">{market.nowEt}</div>
@@ -163,13 +165,15 @@ export function Dashboard({ snapshot, agent, stats }: { snapshot: Snapshot; agen
         ))}
       </section>
 
-      <UsageStats stats={stats} />
-
-      {agent ? (
-        <AgentDesk state={agent} tickers={rows.map((r) => r.symbol)} />
+      {report ? (
+        <NearDesk report={report} board={board} tickers={rows.map((r) => r.symbol)} />
       ) : (
         <div className="rounded-xl border border-[var(--line)] px-4 py-3 text-sm text-[var(--muted)]">Agent is offline right now.</div>
       )}
+
+      <Guardrails board={board} />
+
+      <Leaderboard board={board} />
 
       {warnings.length > 0 && (
         <div className="rounded-xl border border-[var(--amber)]/30 bg-[var(--amber-dim)] px-4 py-3 text-sm text-[var(--amber)]">
@@ -242,7 +246,7 @@ export function Dashboard({ snapshot, agent, stats }: { snapshot: Snapshot; agen
         </p>
         <p className="mt-2 num text-[10px]">
           Snapshot {new Date(snapshot.fetchedAt).toISOString()} · sources: api.coinbase.com/v1/tokenized-stocks,
-          Base public RPC (pool slot0), DexScreener (liquidity), AfterHoursBoard events on Base Sepolia.
+          Base public RPC (pool slot0), DexScreener (liquidity), AfterHours board contract on NEAR testnet ({board.contract}).
         </p>
       </footer>
     </div>

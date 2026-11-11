@@ -174,16 +174,18 @@ export function analyzeSnapshot(snapshot: Snapshot): AgentReport {
  * AGENT_LLM_MODEL). Any failure falls back to the rule-based note.
  */
 export async function maybeEnhanceWithLlm(report: AgentReport): Promise<AgentReport> {
-  const key = process.env.AGENT_LLM_API_KEY;
+  // NEAR AI Cloud (private inference in TEEs, OpenAI-compatible) is the default when NEAR_AI_API_KEY is set.
+  const nearKey = process.env.NEAR_AI_API_KEY;
+  const key = nearKey || process.env.AGENT_LLM_API_KEY;
   if (!key || report.calls.length === 0) return report;
-  const base = (process.env.AGENT_LLM_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const model = process.env.AGENT_LLM_MODEL || "gpt-4o-mini";
+  const base = (process.env.AGENT_LLM_BASE_URL || (nearKey ? "https://cloud-api.near.ai/v1" : "https://api.openai.com/v1")).replace(/\/$/, "");
+  const model = process.env.AGENT_LLM_MODEL || (nearKey ? "zai-org/GLM-5.1-FP8" : "gpt-4o-mini");
   const out: AgentReport = { ...report, llm: { enabled: true, model } };
   try {
     const calls = await Promise.all(
       report.calls.slice(0, 5).map(async (c) => {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const timer = setTimeout(() => ctrl.abort(), nearKey ? 20000 : 8000);
         try {
           const res = await fetch(`${base}/chat/completions`, {
             method: "POST",
@@ -192,12 +194,12 @@ export async function maybeEnhanceWithLlm(report: AgentReport): Promise<AgentRep
             body: JSON.stringify({
               model,
               temperature: 0.3,
-              max_tokens: 120,
+              max_tokens: nearKey ? 800 : 120,
               messages: [
                 {
                   role: "system",
                   content:
-                    "You are AfterHours, an onchain analyst for Coinbase tokenized stocks on Base. Write ONE plain-text note under 240 characters explaining the call. Keep the numbers exactly as given. No hype, no emojis, end with 'Not advice.'",
+                    "You are AfterHours, an onchain analyst for Coinbase tokenized stocks (priced on Base, calls recorded on NEAR). Write ONE plain-text note under 240 characters explaining the call. Keep the numbers exactly as given. No hype, no emojis, end with 'Not advice.'",
                 },
                 {
                   role: "user",

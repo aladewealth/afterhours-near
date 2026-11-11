@@ -1,17 +1,21 @@
-import type { AgentState } from "@/lib/agentState";
+import type { AgentReport } from "@/lib/agent";
 import { directionLabel } from "@/lib/agent";
-import { BLOCKSCOUT, EXPLORER } from "@/lib/contracts";
-import { formatIsoWat, formatPct, formatUsd } from "@/lib/format";
-import { CallComposer } from "./CallComposer";
-
-function short(addr: string) {
-  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
-}
+import { NEAR_AGENT_ACCOUNT, NEAR_EXPLORER, NEAR_RESOLVER_ACCOUNT, fromE6, type NearBoard, type NearCall } from "@/lib/near";
+import { formatPct, formatUsd } from "@/lib/format";
+import { NearCallComposer } from "./NearCallComposer";
 
 function dirTone(d: number) {
   if (d > 0) return "bg-[var(--up-dim)] text-[var(--up)]";
   if (d < 0) return "bg-[var(--down-dim)] text-[var(--down)]";
   return "bg-white/10 text-[var(--text)]";
+}
+
+function fmtWat(ms: number) {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Lagos", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(ms)) + " WAT";
+}
+
+function shortAcc(a: string) {
+  return a.length > 22 ? `${a.slice(0, 10)}…${a.slice(-8)}` : a;
 }
 
 function ConfidenceBar({ value }: { value: number }) {
@@ -22,17 +26,20 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-export function AgentDesk({ state, tickers }: { state: AgentState; tickers: string[] }) {
-  const { report, feed, mode } = state;
-  const agentPosts = feed.calls.filter((c) => c.byAgent).length;
-  const communityPosts = feed.calls.length - agentPosts;
-  const lastAgent = feed.calls.find((c) => c.byAgent);
-  // eslint-disable-next-line react-hooks/purity
-  const agentActive = mode === "onchain" || (lastAgent ? Date.now() - Date.parse(lastAgent.postedAt) < 24 * 3600_000 : false);
+function Resolution({ c }: { c: NearCall }) {
+  if (!c.resolution) return <span className="rounded-full bg-white/5 px-1.5 py-0.5 text-[var(--muted)]">open</span>;
+  const r = c.resolution;
+  return (
+    <span className={`rounded-full px-1.5 py-0.5 font-medium ${r.hit ? "bg-[var(--up-dim)] text-[var(--up)]" : "bg-[var(--down-dim)] text-[var(--down)]"}`} title={`Graded by ${r.resolved_by} at ${fmtWat(r.resolved_at_ms)}`}>
+      {r.hit ? "hit" : "miss"} · NAV {formatUsd(fromE6(r.open_price_e6), 2)}
+    </span>
+  );
+}
 
+export function NearDesk({ report, board, tickers }: { report: AgentReport; board: NearBoard; tickers: string[] }) {
+  const s = board.stats;
   return (
     <section id="agent" className="grid gap-4 lg:grid-cols-[1.15fr_1fr]">
-      {/* Agent brain */}
       <div className="rounded-2xl border border-[var(--line-strong)] bg-[var(--bg-row)]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--line)] px-4 py-3">
           <div className="flex items-center gap-2">
@@ -40,25 +47,17 @@ export function AgentDesk({ state, tickers }: { state: AgentState; tickers: stri
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--live)] opacity-60" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--live)]" />
             </span>
-            <h2 className="text-sm font-medium text-white">AfterHours Agent · current read</h2>
+            <h2 className="text-sm font-medium text-white">Caller agent · current read</h2>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-            <span
-              title={mode === "onchain" ? "This server signs and posts the agent's calls." : "The agent signs from its own runner every 30 min; this page only reads the chain."}
-              className={`rounded-full px-2 py-0.5 font-medium ${agentActive ? "bg-[var(--up-dim)] text-[var(--up)]" : "bg-[var(--amber-dim)] text-[var(--amber)]"}`}
-            >
-              {mode === "onchain" ? "Posting onchain" : agentActive ? "Posting onchain · every 30 min" : "Agent paused"}
-            </span>
-            <span className="rounded-full bg-white/5 px-2 py-0.5 text-[var(--muted)]">
-              {report.llm.enabled && !report.llm.error ? `LLM notes · ${report.llm.model}` : "Rule engine (no API key)"}
-            </span>
-          </div>
+          <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-[var(--muted)]">
+            {report.llm.enabled && !report.llm.error ? `Notes by NEAR AI Cloud · ${report.llm.model}` : "Rule engine (NEAR AI notes off)"}
+          </span>
         </div>
         <div className="px-4 py-3 text-xs leading-5 text-[var(--muted)]">
           Scans {report.scanned} tokenized stocks with an official NAV. {report.marketOpen
             ? `Cash session is open, so NAV is live: gaps over ${report.thresholdPct}% are called "converge".`
             : `Cash session is closed, so NAV is frozen: DEX gaps over ${report.thresholdPct}% are read as the next-open gap.`}{" "}
-          Pools under $100k liquidity are ignored. Calls go to <span className="num">AfterHoursBoard.postCall</span> on Base Sepolia.
+          Every 30 minutes the agent signs <span className="num">post_call</span> on <span className="num">{board.contract}</span> with a function-call key. The contract checks its policy first.
         </div>
         {report.calls.length === 0 ? (
           <div className="mx-4 mb-4 rounded-xl border border-dashed border-[var(--line-strong)] px-4 py-6 text-center text-sm text-[var(--muted)]">
@@ -83,11 +82,6 @@ export function AgentDesk({ state, tickers }: { state: AgentState; tickers: stri
                   <span className="w-24 shrink-0 text-[11px] text-[var(--muted)]">Confidence {c.confidence}</span>
                   <ConfidenceBar value={c.confidence} />
                 </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {c.signals.map((s) => (
-                    <span key={s} className="rounded-full border border-[var(--line)] px-2 py-0.5 text-[10px] text-[var(--muted)]">{s}</span>
-                  ))}
-                </div>
               </li>
             ))}
           </ul>
@@ -96,9 +90,9 @@ export function AgentDesk({ state, tickers }: { state: AgentState; tickers: stri
           <details className="border-t border-[var(--line)] px-4 py-3 text-xs text-[var(--muted)]">
             <summary className="cursor-pointer select-none">Why the agent skipped {report.skipped.length} tickers</summary>
             <ul className="mt-2 grid gap-1 sm:grid-cols-2">
-              {report.skipped.map((s) => (
-                <li key={s.ticker}>
-                  <span className="text-[var(--text)]">{s.ticker}</span> · {s.reason}
+              {report.skipped.map((x) => (
+                <li key={x.ticker}>
+                  <span className="text-[var(--text)]">{x.ticker}</span> · {x.reason}
                 </li>
               ))}
             </ul>
@@ -106,48 +100,45 @@ export function AgentDesk({ state, tickers }: { state: AgentState; tickers: stri
         )}
       </div>
 
-      {/* Onchain activity */}
       <div className="flex flex-col gap-4">
         <div className="rounded-2xl border border-[var(--line-strong)] bg-[var(--bg-row)]">
           <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-3">
-            <h2 className="text-sm font-medium text-white">Agent activity · onchain</h2>
-            {state.boardAddress && (
-              <a href={`${EXPLORER}/address/${state.boardAddress}#events`} target="_blank" rel="noreferrer" className="num text-[11px] text-[var(--amber)] hover:underline">
-                Board {short(state.boardAddress)} ↗
-              </a>
-            )}
+            <h2 className="text-sm font-medium text-white">Board · NEAR testnet</h2>
+            <a href={`${NEAR_EXPLORER}/address/${board.contract}`} target="_blank" rel="noreferrer" className="num text-[11px] text-[var(--amber)] hover:underline">
+              {board.contract} ↗
+            </a>
           </div>
-          <div className="grid grid-cols-3 gap-px bg-[var(--line)] text-center">
+          <div className="grid grid-cols-4 gap-px bg-[var(--line)] text-center">
             {[
-              { k: "Agent calls", v: agentPosts },
-              { k: "Community calls", v: communityPosts },
-              { k: "Wallets", v: feed.uniqueWallets },
-            ].map((s) => (
-              <div key={s.k} className="bg-[var(--bg-row)] px-2 py-2">
-                <div className="num text-lg text-white">{s.v}</div>
-                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{s.k}</div>
+              { k: "Agent calls", v: s?.agent_calls ?? 0 },
+              { k: "Community", v: s?.community_calls ?? 0 },
+              { k: "Graded", v: s?.resolved_calls ?? 0 },
+              { k: "Blocked", v: s?.blocked_attempts ?? 0 },
+            ].map((x) => (
+              <div key={x.k} className="bg-[var(--bg-row)] px-2 py-2">
+                <div className="num text-lg text-white">{x.v}</div>
+                <div className="text-[10px] uppercase tracking-wider text-[var(--muted)]">{x.k}</div>
               </div>
             ))}
           </div>
-          {!feed.ok && <div className="px-4 py-2 text-[11px] text-[var(--amber)]">Feed unavailable: {feed.error}</div>}
-          {feed.calls.length === 0 ? (
+          {!board.ok && <div className="px-4 py-2 text-[11px] text-[var(--amber)]">Feed unavailable: {board.error}</div>}
+          {board.calls.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-[var(--muted)]">No calls posted yet.</p>
           ) : (
-            <ol className="max-h-[420px] divide-y divide-[var(--line)] overflow-y-auto">
-              {feed.calls.slice(0, 20).map((c) => (
-                <li key={c.callId} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <div className="flex items-center gap-2">
-                      <span className="num text-[var(--muted)]">#{c.callId}</span>
+            <ol className="max-h-[460px] divide-y divide-[var(--line)] overflow-y-auto">
+              {board.calls.slice(0, 30).map((c) => (
+                <li key={c.id} className="px-4 py-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="num text-[var(--muted)]">#{c.id}</span>
                       <span className="font-medium text-white">{c.ticker}</span>
                       <span className={`rounded-full px-1.5 py-0.5 font-medium ${dirTone(c.direction)}`}>{directionLabel(c.direction)}</span>
-                      <span className={`rounded-full px-1.5 py-0.5 ${c.byAgent ? "bg-[rgba(94,234,212,0.12)] text-[var(--live)]" : "bg-white/5 text-[var(--muted)]"}`}>
-                        {c.byAgent ? "Agent" : short(c.user)}
+                      <span className={`rounded-full px-1.5 py-0.5 ${c.by_agent ? "bg-[rgba(94,234,212,0.12)] text-[var(--live)]" : "bg-white/5 text-[var(--muted)]"}`}>
+                        {c.author === NEAR_AGENT_ACCOUNT ? "Agent" : shortAcc(c.author)}
                       </span>
+                      <Resolution c={c} />
                     </div>
-                    <a href={`${EXPLORER}/tx/${c.txHash}`} target="_blank" rel="noreferrer" className="text-[var(--muted)] hover:text-[var(--amber)]">
-                      {formatIsoWat(c.postedAt)} ↗
-                    </a>
+                    <span className="text-[var(--muted)]">{fmtWat(c.posted_at_ms)}</span>
                   </div>
                   {c.note && <p className="mt-1.5 text-xs leading-5 text-[var(--text)]/90">{c.note}</p>}
                 </li>
@@ -155,10 +146,11 @@ export function AgentDesk({ state, tickers }: { state: AgentState; tickers: stri
             </ol>
           )}
           <div className="border-t border-[var(--line)] px-4 py-2 text-[10px] text-[var(--muted)]">
-            Agent wallet <a className="num hover:text-[var(--amber)]" href={`${BLOCKSCOUT}/address/${state.agentAddress}`} target="_blank" rel="noreferrer">{short(state.agentAddress)}</a> · Base Sepolia testnet · no funds at risk
+            Caller <a className="num hover:text-[var(--amber)]" href={`${NEAR_EXPLORER}/address/${NEAR_AGENT_ACCOUNT}`} target="_blank" rel="noreferrer">{NEAR_AGENT_ACCOUNT}</a> · resolver{" "}
+            <a className="num hover:text-[var(--amber)]" href={`${NEAR_EXPLORER}/address/${NEAR_RESOLVER_ACCOUNT}`} target="_blank" rel="noreferrer">{NEAR_RESOLVER_ACCOUNT}</a> · testnet, no funds at risk
           </div>
         </div>
-        {state.boardAddress && <CallComposer board={state.boardAddress} tickers={tickers} />}
+        <NearCallComposer contract={board.contract} tickers={tickers} />
       </div>
     </section>
   );

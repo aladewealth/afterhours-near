@@ -13,9 +13,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AfterHours — Tokenized stock premiums on Base",
+  title: "AfterHours on NEAR — a guarded AI trading-call agent",
   description:
-    "Watch how Coinbase tokenized stocks trade on Base after the cash session closes. Informational only — not investment advice, not a trading venue.",
+    "An AI agent posts after-hours gap calls on tokenized stocks to a NEAR contract that enforces a human-set policy, records every blocked attempt and grades every call. Informational only.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

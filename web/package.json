@@ -9,10 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@near-wallet-selector/core": "^10.1.4",
+    "@near-wallet-selector/meteor-wallet": "^10.1.4",
+    "@near-wallet-selector/modal-ui": "^10.1.4",
+    "@near-wallet-selector/my-near-wallet": "^10.1.4",
+    "near-api-js": "^7.5.3",
     "next": "16.4.6",
-    "ox": "^1.8.16",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
     "viem": "^2.57.18"
   },
   "devDependencies": {
