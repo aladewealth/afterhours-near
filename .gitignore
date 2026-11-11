@@ -1,0 +1,6 @@
+
+# NEAR build + keys
+contract/target/
+.near-credentials/
+*.near-key.json
+agent/.env
